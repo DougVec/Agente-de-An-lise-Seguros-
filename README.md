@@ -22,17 +22,31 @@ flowchart TD
     O -->|Opção 2| C["Especialista - Contratação<br/>(Claude Sonnet 5.5)"]
     T --> ST[[Skill: analise-tecnica-seguro-garantia]]
     C --> SC[[Skill: analise-contratacao-renovacao]]
+    O --> FA[Fluxo: Salvar Anexo para Analise]
+    FA --> SP[(SharePoint)]
+    T --> FO[Fluxo: Obter Anexo para Analise]
+    C --> FO
+    FO --> SP
     T --> F[Fluxo: Salvar Analise em PDF]
     C --> F
-    F --> SP[(SharePoint)]
+    F --> SP
 ```
 
 | Componente | Função |
 |---|---|
-| **Orquestrador** | Mostra o menu inicial, escolhe o especialista e repassa a resposta sem alterar nada. Usa um modelo barato. |
+| **Orquestrador** | Mostra o menu inicial, salva os anexos no SharePoint, escolhe o especialista e repassa a resposta sem alterar nada. Usa um modelo barato. |
 | **Especialistas** | Executam a análise seguindo a habilidade (skill) e salvam o PDF. Usam um modelo forte em leitura de documentos. |
 | **Skills (`SKILL.md`)** | Regras completas de cada análise: gate de documentos, extração, critérios, formato de saída e controle de qualidade. |
-| **Fluxo** | Recebe a análise em HTML, converte em PDF e salva no SharePoint. |
+| **Fluxos** | *Salvar Anexo* e *Obter Anexo* levam os documentos do Teams até o especialista. *Salvar Analise em PDF* converte a análise em PDF e salva no SharePoint. |
+
+## Como os anexos chegam ao especialista
+
+Agentes conectados recebem só o texto que o orquestrador envia, não os anexos do Teams. Se o orquestrador repassar o caminho do arquivo (ex.: `/app/uploads/...`), o especialista não encontra nada, porque roda em outro ambiente. A solução:
+
+1. O usuário anexa os PDFs normalmente no Teams.
+2. O orquestrador chama **Salvar Anexo para Analise** para cada anexo, que grava o arquivo no SharePoint e devolve o `IdArquivo`.
+3. O orquestrador repassa ao especialista apenas a lista de `IdArquivo`.
+4. O especialista chama **Obter Anexo para Analise** para cada `IdArquivo` e recebe o documento como arquivo.
 
 ## Como o agente evita inventar dados (alucinação)
 
@@ -66,26 +80,29 @@ flowchart TD
 ├── conhecimento/
 │   └── base-regras-seguro-garantia.md    # glossário, critérios e fórmulas (fonte das skills)
 └── fluxos/
-    └── salvar-analise-pdf.md             # passo a passo do agent flow
+    ├── salvar-anexo-analise.md           # orquestrador: anexo do Teams → SharePoint
+    ├── obter-anexo-analise.md            # especialistas: SharePoint → arquivo
+    └── salvar-analise-pdf.md             # especialistas: análise → PDF
 ```
 
 ## Como recriar no Copilot Studio
 
 Pré-requisitos: licença do Copilot Studio, conexões do OneDrive for Business e do SharePoint, e um site ou biblioteca do SharePoint para os PDFs.
 
-1. **Fluxo**: em *Fluxos de trabalho*, crie o fluxo seguindo [`fluxos/salvar-analise-pdf.md`](fluxos/salvar-analise-pdf.md) e publique.
+1. **Fluxos**: em *Fluxos de trabalho*, crie e publique os três fluxos: [`salvar-anexo-analise.md`](fluxos/salvar-anexo-analise.md), [`obter-anexo-analise.md`](fluxos/obter-anexo-analise.md) e [`salvar-analise-pdf.md`](fluxos/salvar-analise-pdf.md).
 2. **Especialista - Análise Técnica**:
    1. Crie um agente e escolha o modelo Claude Sonnet 5.5.
    2. Em *Habilidades → Carregar*, envie `skills/analise-tecnica-seguro-garantia/SKILL.md`.
-   3. Em *Ferramentas → Fluxos de trabalho*, adicione o fluxo.
+   3. Em *Ferramentas → Fluxos de trabalho*, adicione *Obter Anexo para Analise* e *Salvar Analise em PDF*.
    4. Cole as instruções de [`agentes/especialista-analise-tecnica.md`](agentes/especialista-analise-tecnica.md).
    5. Remova a pesquisa na web e publique, sem canal.
 3. **Especialista - Contratação**: igual ao passo 2, usando a skill e as instruções de contratação.
 4. **Orquestrador**:
    1. Crie um agente e escolha o modelo Claude Haiku 5.5.
    2. Cole as instruções de [`agentes/orquestrador.md`](agentes/orquestrador.md).
-   3. Em *Agentes conectados*, adicione os dois especialistas com as descrições do arquivo.
-   4. Remova a pesquisa na web.
+   3. Em *Ferramentas → Fluxos de trabalho*, adicione *Salvar Anexo para Analise*.
+   4. Em *Agentes conectados*, adicione os dois especialistas com as descrições do arquivo.
+   5. Remova a pesquisa na web.
 5. **Publicar**: no orquestrador, adicione o canal **Teams + Microsoft 365** e publique. Depois compartilhe o agente com a equipe.
 
 > Os nomes dos agentes no Copilot Studio têm limite de cerca de 30 caracteres.
@@ -106,7 +123,8 @@ Pré-requisitos: licença do Copilot Studio, conexões do OneDrive for Business 
 ## Limitações conhecidas
 
 - Os fluxos e as fontes de conhecimento consomem créditos do Copilot Studio. Sem créditos no ambiente, o PDF não é salvo.
-- O repasse de anexos do orquestrador para os especialistas depende do suporte da plataforma. Teste com documentos reais antes de liberar para a equipe.
+- O repasse de anexos passa pelo SharePoint (ver "Como os anexos chegam ao especialista"). A leitura do arquivo devolvido pelo fluxo *Obter Anexo* ainda precisa ser validada com documentos reais.
+- Quem usa o agente precisa ter acesso à pasta do SharePoint onde os anexos são salvos. As cópias se acumulam lá, então vale configurar uma limpeza periódica.
 - PDFs escaneados sem camada de texto (OCR) podem não ser lidos. Nesse caso o agente pede uma versão legível.
 
 ## Aviso
